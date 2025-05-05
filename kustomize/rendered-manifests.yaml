@@ -1,0 +1,1623 @@
+---
+# Source: qos-scheduler/charts/network/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+   name: network-k8s-namespace
+---
+# Source: qos-scheduler/charts/cni/templates/serviceAccount.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cni-install
+  namespace: kube-system
+---
+# Source: qos-scheduler/charts/controller/templates/serviceaccount.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: controller-sa
+  namespace: he-codeco-swm
+---
+# Source: qos-scheduler/charts/multus-cni/templates/service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qos-multus-cni
+  namespace: "kube-system"
+  labels:
+    app.kubernetes.io/instance: qos
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: multus-cni
+    app.kubernetes.io/version: 4.0.2
+    helm.sh/chart: multus-cni-1.1.10
+automountServiceAccountToken: true
+---
+# Source: qos-scheduler/charts/network/templates/serviceaccount.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-base-sa
+  namespace: network-k8s-namespace
+---
+# Source: qos-scheduler/charts/nodedaemon/templates/role.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+# permissions for the service account that the node daemon runs as.
+# this account must be able to view nodes and update networkendpoints.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-daemon
+  namespace: kube-system
+---
+# Source: qos-scheduler/charts/scheduler/templates/serviceaccount.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: kube-system
+  name: qos-scheduler-sa
+---
+# Source: qos-scheduler/charts/solver/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solver-sa
+  namespace: he-codeco-swm
+---
+# Source: qos-scheduler/charts/controller/templates/config.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+   name: controller-manager-config
+   namespace: he-codeco-swm
+data: 
+   controller_manager_config.yaml: |
+      apiVersion: controller-runtime.sigs.k8s.io/v1alpha1
+      kind: ControllerManagerConfig
+      health:
+        healthProbeBindAddress: :8081
+      metrics:
+        bindAddress: 127.0.0.1:8080
+      webhook:
+        port: 9443
+      leaderElection:
+        leaderElect: true
+        resourceName: 63c9a0d6.siemens.com
+---
+# Source: qos-scheduler/charts/scheduler/templates/configmap.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qosscheduler-config
+  namespace: kube-system
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: false
+    profiles:
+    - schedulerName: qos-scheduler
+      plugins:
+        filter:
+          enabled:
+          - name: QosScheduler
+        preScore:
+          enabled:
+          - name: QosScheduler
+        score:
+          enabled:
+          - name: QosScheduler
+            weight: 100
+        permit:
+          enabled:
+          - name: QosScheduler
+        preBind:
+          enabled:
+          - name: QosScheduler
+        bind:
+          # Have to remove the DefaultBinder first and then add it after the QosScheduler.
+          # This is so that pods not handled by the QosScheduler get bound normally.
+          disabled:
+          - name: DefaultBinder
+          enabled:
+          - name: QosScheduler
+          - name: DefaultBinder
+        postBind:
+          enabled:
+          - name: QosScheduler
+      pluginConfig:
+      - name: QosScheduler
+        args: {"master": "master", "kubeconfig": "kubeconfig"}
+---
+# Source: qos-scheduler/charts/cni/templates/clusterRole.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cni-install
+rules:
+  - apiGroups: ["k8s.cni.cncf.io"]
+    resources:
+      - '*'
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+---
+# Source: qos-scheduler/charts/controller/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  - pods
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applicationgroups
+  - applications
+  - assignmentplans
+  - channels
+  - ipams
+  - networklinks
+  - networkpaths
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applicationgroups/finalizers
+  - applications/finalizers
+  - channels/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applicationgroups/status
+  - channels/status
+  - ipams/status
+  - networklinks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applications/status
+  - networkendpoints
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - assignmentplans/status
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networktopologies
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: qos-scheduler/charts/multus-cni/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qos-multus-cni-kube-system
+  labels:
+    app.kubernetes.io/instance: qos
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: multus-cni
+    app.kubernetes.io/version: 4.0.2
+    helm.sh/chart: multus-cni-1.1.10
+rules:
+  - apiGroups: ["k8s.cni.cncf.io"]
+    resources:
+      - '*'
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+---
+# Source: qos-scheduler/charts/network/templates/cluster-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-maintainer-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update  
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - applications
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networkendpoints
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networklinks
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networklinks/status
+    verbs:
+      - get
+      - watch
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networkpaths
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networktopologies
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - networktopologies/status
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - channels
+    verbs:
+      - update
+      - patch
+      - list
+      - get
+      - watch
+      - delete
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - channels/status
+    verbs:
+      - update
+      - get
+      - watch
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - ipams
+    verbs:
+      - list
+      - get
+      - watch
+  - apiGroups:
+      - qos-scheduler.siemens.com
+    resources:
+      - ipams/status
+    verbs:
+      - get
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - l2sm.l2sm.k8s.local
+    resources:
+      - l2networks
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - monc.siemens.com
+    resources:
+      - streams
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - monc.siemens.com
+    resources:
+      - streams/status
+    verbs:
+      - get
+      - patch
+      - update
+      - watch
+---
+# Source: qos-scheduler/charts/network/templates/endpoint-maintainer-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: endpoint-maintainer-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networkendpoints
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+# Source: qos-scheduler/charts/nodedaemon/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-daemon-role
+rules:
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networkendpoints
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - create
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networkendpoints/status
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networklinks
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: qos-scheduler/charts/scheduler/templates/role.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: qos-scheduler-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["*"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "csidrivers", "csistoragecapacities"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applicationgroups
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applicationgroups/status
+  verbs:
+  - get
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applications
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - applications/status
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - assignmentplans
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - assignmentplans/status
+  verbs:
+  - get
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - channels
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - channels/status
+  verbs:
+  - get
+---
+# Source: qos-scheduler/charts/solver/templates/serviceaccount.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: solver-role
+  namespace: he-codeco-swm
+rules:
+- apiGroups:
+  - "qos-scheduler.siemens.com"
+  resources:
+  - assignmentplans
+  verbs:
+  - get
+  - list
+  - create
+  - patch
+  - update
+  - watch
+---
+# Source: qos-scheduler/charts/cni/templates/clusterRolebinding.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cni-install
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cni-install
+subjects:
+- kind: ServiceAccount
+  name: cni-install
+  namespace: kube-system
+---
+# Source: qos-scheduler/charts/controller/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: manager-role
+subjects:
+- kind: ServiceAccount
+  name: controller-sa
+  namespace: he-codeco-swm
+---
+# Source: qos-scheduler/charts/multus-cni/templates/clusterrolebinding.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: qos-multus-cni-kube-system
+  labels:
+    app.kubernetes.io/instance: qos
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: multus-cni
+    app.kubernetes.io/version: 4.0.2
+    helm.sh/chart: multus-cni-1.1.10
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: qos-multus-cni-kube-system
+subjects:
+  - kind: ServiceAccount
+    name: qos-multus-cni
+    namespace: "kube-system"
+---
+# Source: qos-scheduler/charts/network/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nwmaintainer-k8s-rb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-maintainer-role
+subjects:
+- kind: ServiceAccount
+  name: network-base-sa
+  namespace: network-k8s-namespace
+---
+# Source: qos-scheduler/charts/network/templates/serviceaccount.yaml
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: epmaintainer-k8s-rb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: endpoint-maintainer-role
+subjects:
+- kind: ServiceAccount
+  name: network-base-sa
+  namespace: network-k8s-namespace
+---
+# Source: qos-scheduler/charts/nodedaemon/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nodedaemon-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-daemon-role
+subjects:
+- kind: ServiceAccount
+  name: node-daemon
+  namespace: kube-system
+---
+# Source: qos-scheduler/charts/scheduler/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+   name: qos-scheduler-sa-binding
+subjects:
+   - kind: ServiceAccount
+     namespace: kube-system
+     name: qos-scheduler-sa
+roleRef:
+   kind: ClusterRole
+   name: qos-scheduler-role
+   apiGroup: rbac.authorization.k8s.io
+---
+# Source: qos-scheduler/charts/scheduler/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+   name: qos-scheduler-sa-default-binding
+subjects:
+   - kind: ServiceAccount
+     namespace: kube-system
+     name: qos-scheduler-sa
+roleRef:
+   kind: ClusterRole
+   name: system:kube-scheduler
+   apiGroup: rbac.authorization.k8s.io
+---
+# Source: qos-scheduler/charts/solver/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: solver-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: solver-role
+subjects:
+- kind: ServiceAccount
+  name: solver-sa
+  namespace: he-codeco-swm
+---
+# Source: qos-scheduler/charts/controller/templates/leader_election_role.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+# permissions to do leader election.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-election-role
+  namespace: he-codeco-swm
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+# Source: qos-scheduler/charts/network/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: network-k8s-role
+  namespace: network-k8s-namespace
+rules:
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - channels/status
+  verbs:
+  - get
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networklinks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networktopologies
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+  - create
+  - patch
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networktopologies/status
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+  - create
+  - patch
+  - update
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networklinks/status
+  verbs:
+  - get
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - networkpaths
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - ipams
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - qos-scheduler.siemens.com
+  resources:
+  - ipams/status
+  verbs:
+  - update
+  - patch
+  - get
+- apiGroups:
+    - ""
+  resources:
+    - pods
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - qos-scheduler.siemens.com
+  resources:
+    - applications
+  verbs:
+    - get
+    - list
+- apiGroups:
+    - monc.siemens.com
+  resources:
+    - streams
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+---
+# Source: qos-scheduler/charts/controller/templates/leader_election_role_binding.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leader-election-rolebinding
+  namespace: he-codeco-swm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: controller-sa
+  namespace: he-codeco-swm
+---
+# Source: qos-scheduler/charts/network/templates/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nwoperator-k8s-rb
+  namespace: network-k8s-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: network-k8s-role
+subjects:
+- kind: ServiceAccount
+  name: network-base-sa
+  namespace: network-k8s-namespace
+---
+# Source: qos-scheduler/charts/controller/templates/service.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: controller-service
+  namespace: he-codeco-swm
+  labels:
+    app: controller-manager
+spec:
+  type: NodePort
+  selector:
+    app: controller-manager 
+  ports:
+    - protocol: TCP
+      port: 8080
+      name: metrics
+      targetPort: 8080
+    - protocol: TCP
+      port: 8081
+      name: health
+      targetPort: 8081
+---
+# Source: qos-scheduler/charts/solver/templates/service.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: solver-service
+  namespace: he-codeco-swm
+spec:
+  type: ClusterIP
+  selector:
+    app: solver
+  ports:
+    - name: grpc
+      port: 80
+      targetPort: 5000
+---
+# Source: qos-scheduler/charts/cni/templates/daemonset.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-cni-install-ds
+  namespace: kube-system
+  labels:
+    tier: node
+    app: cni-install
+    name: cni-install
+spec:
+  selector:
+    matchLabels:
+      name: cni-install
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: cni-install
+        name: cni-install
+    spec:
+      hostNetwork: true
+      imagePullSecrets:
+              
+        - name: qos-registry-access
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      serviceAccountName: cni-install
+      containers:
+      - name: busybox
+        image: busybox
+        command:
+          - sleep
+          - infinity
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+          limits:
+            cpu: "100m"
+            memory: "50Mi"
+      initContainers:
+        - name: install-standard-plugins
+          image: alpine
+          command: ["ash", "-c"]
+          args: ["cd /host/opt/cni/bin && wget https://github.com/containernetworking/plugins/releases/download/v1.0.1/cni-plugins-linux-amd64-v1.0.1.tgz -O cni-plugins-linux-amd64-v1.0.1.tgz && tar xzf cni-plugins-linux-amd64-v1.0.1.tgz"]
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+              mountPropagation: Bidirectional
+        - name: install-demo-cni-plugin
+          image: hecodeco/swm-cni-vlan:2.0.4
+          imagePullPolicy: Always
+          command:
+            - "cp"
+            - "/bin/cni-vlan"
+            - "/host/opt/cni/bin/"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "15Mi"
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+              mountPropagation: Bidirectional
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin
+---
+# Source: qos-scheduler/charts/multus-cni/templates/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: qos-multus-cni
+  namespace: "kube-system"
+  labels:
+    app.kubernetes.io/instance: qos
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: multus-cni
+    app.kubernetes.io/version: 4.0.2
+    helm.sh/chart: multus-cni-1.1.10
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: qos
+      app.kubernetes.io/name: multus-cni
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: qos
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: multus-cni
+        app.kubernetes.io/version: 4.0.2
+        helm.sh/chart: multus-cni-1.1.10
+    spec:
+      
+      hostNetwork: true
+      serviceAccountName: qos-multus-cni
+      securityContext:
+        fsGroup: 0
+      affinity:
+        podAffinity:
+          
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: qos
+                    app.kubernetes.io/name: multus-cni
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+          
+      priorityClassName: ""
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      initContainers:
+        - name: install-multus-binary
+          image: docker.io/bitnami/multus-cni:4.0.2
+          command:
+            - cp 
+            - -r
+            # Using /usr/src to allow compatibility with upstream multus container
+            - "/usr/src/multus-cni/bin/multus"
+            - "/bitnami/multus-cni/host/opt/cni/bin/"
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - name: cni-bin-dir
+              mountPath: /bitnami/multus-cni/host/opt/cni/bin
+              mountPropagation: Bidirectional
+        - name: generate-kubeconfig
+          image: docker.io/bitnami/multus-cni:4.0.2
+          command:
+            - install_multus
+          args:
+            - "--type"
+            - "thin"
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - name: cni-bin-dir
+              mountPath: /bitnami/multus-cni/host/opt/cni/bin
+              mountPropagation: Bidirectional
+      containers:
+        - name: multus-cni
+          image: docker.io/bitnami/multus-cni:4.0.2
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - "/thin_entrypoint"
+          args:
+            - "--multus-conf-file=auto"
+            - "--cni-conf-dir=/bitnami/multus-cni/host/etc/cni/net.d"
+            - "--multus-autoconfig-dir=/bitnami/multus-cni/host/etc/cni/net.d"
+            - "--cni-bin-dir=/bitnami/multus-cni/host/opt/cni/bin"
+            - "--multus-log-level=verbose"
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+          envFrom:
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - rm /host/etc/cni/net.d/00-multus.conf || true
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - thin_entrypoint
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            limits: {}
+            requests: {}
+          volumeMounts:
+            - name: cni-net-dir
+              mountPath: /bitnami/multus-cni/host/etc/cni/net.d
+            - name: cni-bin-dir
+              mountPath: /bitnami/multus-cni/host/opt/cni/bin
+      volumes:
+        - name: cni-bin-dir
+          hostPath:
+            path: /opt/cni/bin
+        - name: cni-net-dir
+          hostPath:
+            path: /etc/cni/net.d
+---
+# Source: qos-scheduler/charts/nodedaemon/templates/daemonset.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nodedaemon
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      siemens.qosscheduler.com: nodedaemon
+  template:
+    metadata:
+      labels:
+        siemens.qosscheduler.com: nodedaemon
+    spec:
+      serviceAccountName: node-daemon
+      hostNetwork: true
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+                
+        - name: qos-registry-access
+      containers:
+        - name: nodedaemon
+          imagePullPolicy: Always
+          image: "hecodeco/swm-node-daemon:2.0.4"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            capabilities:
+              add:
+                - NET_RAW
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+---
+# Source: qos-scheduler/charts/controller/templates/deployment.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: he-codeco-swm
+  labels:
+    app: controller-manager
+spec:
+  selector:
+    matchLabels:
+      app: controller-manager
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: controller-manager
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      imagePullSecrets:
+              
+        - name: qos-registry-access
+      containers:
+      - name: kube-rbac-proxy
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+        args:
+        - "--secure-listen-address=0.0.0.0:8443"
+        - "--upstream=http://127.0.0.1:8080/"
+        - "--logtostderr=true"
+        - "--v=10"
+        ports:
+        - containerPort: 8443
+          name: https
+      - name: controller
+        command:
+        - /bin/controller
+        args:
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8080
+          - --leader-elect
+          - --service-class-map=BESTEFFORT:K8S,ASSURED:DEMO
+          - --schedule-on-master-node=false
+          - --solver-timeout=10
+          - --ipv4-cidrs=10.10.10.0/20
+          - "--solver-service=solver-service.he-codeco-swm:80"
+        ports:
+        - containerPort: 8081
+          name: health 
+        - containerPort: 8080
+          name: metrics
+        image: "hecodeco/swm-controller:2.0.4"
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+      serviceAccountName: controller-sa
+      terminationGracePeriodSeconds: 10
+---
+# Source: qos-scheduler/charts/network/templates/network-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-base
+  namespace: network-k8s-namespace
+  labels:
+    app: network
+spec:
+  selector:
+    matchLabels:
+      app: network
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: network
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      imagePullSecrets:
+      - name: qos-registry-access-base
+      containers:
+      - name: network
+        image: hecodeco/swm-network-k8s:2.0.4
+        command:
+        -  /bin/network-k8s
+        args: 
+         - "--health-probe-bind-address=:8081"
+         - "--metrics-bind-address=:8080"
+         - "--network-implementations=K8S"
+         - "--channel-controller="
+         - "--physical-network=true"
+         
+        ports:
+        - containerPort: 8081
+          name: health
+        - containerPort: 8080
+          name: metrics
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+        resources:
+          limits:
+            cpu: 100m
+            memory: 30Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi
+      serviceAccountName: network-base-sa
+      terminationGracePeriodSeconds: 10
+---
+# Source: qos-scheduler/charts/scheduler/templates/deployment.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qos-scheduler
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      component: kube-scheduler
+      tier: control-plane
+  template:
+    metadata:
+      labels:
+        app: custom-scheduler
+        component: kube-scheduler
+        tier: control-plane
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule  
+      imagePullSecrets:
+              
+        - name: qos-registry-access
+      serviceAccountName: qos-scheduler-sa
+      containers:
+        - name: qos-scheduler
+          securityContext:
+            privileged: false
+          image: "hecodeco/swm-scheduler:2.0.4"
+          command:
+          - /bin/scheduler
+          - --bind-address=0.0.0.0
+          - -v=10
+          - --config=/scheduler/scheduler-config.yaml
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+          volumeMounts:
+          - mountPath: /scheduler
+            name: scheduler-configmap
+      hostNetwork: false
+      hostPID: false
+      volumes:
+      - name: scheduler-configmap
+        configMap:
+           name: qosscheduler-config
+---
+# Source: qos-scheduler/charts/solver/templates/deployment.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solver
+  namespace: he-codeco-swm
+  labels:
+    app: solver
+spec:
+  selector:
+    matchLabels:
+      app: solver
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: solver
+    spec:
+      imagePullSecrets:
+              
+        - name: qos-registry-access
+      containers:
+      - image: "hecodeco/swm-solved:2.0.2"
+        args: [ "-host=0.0.0.0", "-verbose"]
+        imagePullPolicy: Always
+        name: solver
+        securityContext:
+          allowPrivilegeEscalation: false
+        resources:
+            limits:
+              cpu: 100m
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+        ports:
+           - containerPort: 5000
+      serviceAccountName: solver-sa
+      terminationGracePeriodSeconds: 10
+---
+# Source: qos-scheduler/charts/controller/templates/role.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/controller/templates/validator.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/controller/templates/webhook.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+
+# make a self-signed certificate authority whose certificates are valid for 30 days
+---
+# Source: qos-scheduler/charts/network/templates/cluster-role.yaml
+# SPDX-FileCopyrightText: Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/endpoint-maintainer-role.yaml
+# SPDX-FileCopyrightText: Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/namespace.yaml
+# SPDX-FileCopyrightText: Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/network-deployment.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/networklist.yaml
+# SPDX-FileCopyrightText: Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/nwad.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/pullsecret.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/network/templates/role.yaml
+# SPDX-FileCopyrightText: Siemens AG
+# SPDX-License-Identifier: Apache-2.0
+---
+# Source: qos-scheduler/charts/nsconfig/templates/pullsecret.yaml
+# SPDX-FileCopyrightText: 2023 Siemens AG
+# SPDX-License-Identifier: Apache-2.0

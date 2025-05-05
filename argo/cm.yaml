@@ -1,0 +1,11 @@
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: PlacementDecision
+metadata:
+  name: quak
+  namespace: argocd
+status:
+  # Duck-typing ignores all other aspects of the resource except 
+  # the "decisions" list
+  decisions:
+  - clusterName: cluster1
+  - clusterName: cluster2

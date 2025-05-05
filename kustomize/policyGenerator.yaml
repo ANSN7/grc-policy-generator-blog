@@ -1,12 +1,15 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: PolicyGenerator
 metadata:
-  name: policy-generator-blog
+  name: policy-generator
 policyDefaults:
-  namespace: policy-generator-blog
+  namespace: policy-generator
   remediationAction: enforce
   severity: medium
 policies:
-  - name: policy-generator-blog-app
+  - name: policy-generator-app
     manifests:
-      - path: app-policy
+      - path: rendered-manifests.yaml
+    placement:
+      clusterSelector:
+        matchExpressions: [] 
